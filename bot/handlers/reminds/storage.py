@@ -1,7 +1,12 @@
 import os
 import json
+from datetime import datetime, timedelta
 
-from bot import scheduler, bot
+from aiogram import types
+from aiogram.types import InlineKeyboardMarkup, InlineKeyboardButton
+from aiogram.utils.keyboard import InlineKeyboardBuilder
+
+from bot import bot, scheduler
 from bot.logs.logging_config import logger
 
 
@@ -19,6 +24,65 @@ def save_reminders(reminders):
 REMINDERS_FILE = "reminders.json"
 reminders = load_reminders()
 
+async def send_scheduled_message(chat_id: int, user_id: str, reminder_id: str):
+    try:
+        if user_id in reminders and reminder_id in reminders[user_id]:
+            reminder = reminders[user_id][reminder_id]
+            
+            # Первое уведомление
+            await send_repeated_alert(chat_id, user_id, reminder_id, reminder.get('urgent', False))
+            
+    except Exception as e:
+        logger.error(f"Ошибка отправки напоминания: {e}")
+
+async def send_repeated_alert(chat_id: int, user_id: str, reminder_id: str, urgent: bool):
+    if user_id not in reminders or reminder_id not in reminders[user_id]:
+        return
+        
+    reminder = reminders[user_id][reminder_id]
+    
+    # Если напоминание отключено
+    if not reminder.get('active', True):
+        return
+        
+    text = f"🔔 {reminder['text']}" + (" (СРОЧНО!)" if urgent else "")
+    
+    # Создаем клавиатуру с кнопкой отключения
+    keyboard = InlineKeyboardMarkup(inline_keyboard=[
+        [InlineKeyboardButton(text="⏸ Остановить", callback_data=f"stop_{reminder_id}")]
+    ])
+    
+    await bot.send_message(chat_id, text, reply_markup=keyboard)
+    
+    # Планируем следующее уведомление
+    if urgent:
+        interval = 10  # Каждые 10 секунд для срочных
+    else:
+        interval = 60  # Каждую минуту для обычных
+        
+    scheduler.add_job(
+        send_repeated_alert,
+        'date',
+        run_date=datetime.now() + timedelta(seconds=interval),
+        args=[chat_id, user_id, reminder_id, urgent],
+        timezone='Europe/Kaliningrad'
+    )
+
+def make_urgency_keyboard(reminder_id: str):
+    """Создает инлайн-клавиатуру для срочности напоминания"""
+    builder = InlineKeyboardBuilder()
+    builder.add(
+        types.InlineKeyboardButton(
+            text="🔴 Срочное",
+            callback_data=f"urgent_{reminder_id}"
+        ))
+    builder.add(
+        types.InlineKeyboardButton(
+            text="🟢 Обычное",
+            callback_data=f"normal_{reminder_id}"
+        )
+    )
+    return builder.as_markup()
 
 def restore_reminders():
     for user_id, user_reminders in reminders.items():
@@ -37,21 +101,3 @@ def restore_reminders():
                 )
             except Exception as e:
                 logger.error(f"Ошибка восстановления напоминания: {e}")
-
-async def send_scheduled_message(chat_id: int, user_id: str, reminder_id: str):
-    try:
-        # Получаем текст напоминания из хранилища
-        if user_id in reminders and reminder_id in reminders[user_id]:
-            reminder_text = reminders[user_id][reminder_id]["text"]
-            
-            # Отправляем сообщение с текстом напоминания
-            await bot.send_message(chat_id, f"🔔 Напоминание: {reminder_text}")
-            
-            # Удаляем отработанное напоминание
-            del reminders[user_id][reminder_id]
-            save_reminders(reminders)
-        else:
-            logger.error(f"Напоминание не найдено: user_id={user_id}, reminder_id={reminder_id}")
-            
-    except Exception as e:
-        logger.error(f"Ошибка отправки напоминания: {e}", exc_info=True)

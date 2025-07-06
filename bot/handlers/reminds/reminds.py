@@ -8,9 +8,9 @@ from aiogram.filters import Command
 from aiogram.utils.keyboard import InlineKeyboardBuilder
 from apscheduler.triggers.cron import CronTrigger
 
-from bot import dp, scheduler
+from bot import bot, dp, scheduler
 from bot.logs.logging_config import logger
-from bot.handlers.reminds.storage import reminders, send_scheduled_message, save_reminders
+from bot.handlers.reminds.storage import reminders, save_reminders, send_scheduled_message, make_urgency_keyboard
 
 NUMBER_WORDS = {
     'один': 1, 'одна': 1, 'одну': 1, 'два': 2, 'две': 2, 'три': 3, 'четыре': 4, 'пять': 5,
@@ -75,7 +75,7 @@ def parse_relative_time(text: str) -> Optional[Tuple[int, int]]:
             minutes = num1 % 60
     
     return hours, minutes
-
+    
 @dp.message(Command("add"))
 async def cmd_add_reminder(message: types.Message):
     try:
@@ -170,22 +170,18 @@ async def cmd_add_reminder(message: types.Message):
             reminders[user_id] = {}
             
         reminders[user_id][reminder_id] = {
-            "text": reminder_text,
-            "time": time_str,
-            "frequency": frequency,
-            "job_id": job.id,
-            "created_at": datetime.now().isoformat()
-        }
+                "text": reminder_text,
+                "time": time_str,
+                "frequency": frequency,
+                "job_id": job.id,
+                "created_at": datetime.now().isoformat(),
+                "urgent": False,
+                "active": True
+            }
         save_reminders(reminders)
         
-        # Отправляем подтверждение
-        await message.answer(
-            f"✅ Напоминание создано!\n"
-            f"• Текст: {reminder_text}\n"
-            f"• Время: {time_str}\n"
-            f"• Тип: {frequency}",
-            reply_markup=make_reminder_keyboard(reminder_id)
-        )
+        await message.answer("Выберите срочность:", reply_markup=make_urgency_keyboard(reminder_id))
+        return
         
     except Exception as e:
         logger.error(f"Ошибка при добавлении напоминания: {e}", exc_info=True)
@@ -318,3 +314,43 @@ def make_reminder_keyboard(reminder_id: str):
         )
     )
     return builder.as_markup()
+
+@dp.callback_query(lambda c: c.data.startswith(("urgent_", "normal_")))
+async def set_urgency(callback: types.CallbackQuery):
+    urgency, reminder_id = callback.data.split("_")
+    user_id = str(callback.from_user.id)
+    
+    if user_id in reminders and reminder_id in reminders[user_id]:
+        is_urgent = (urgency == "urgent")
+        reminders[user_id][reminder_id]['urgent'] = is_urgent
+        save_reminders(reminders)
+        
+        text = reminders[user_id][reminder_id]['text']
+        await callback.message.edit_text(
+            text=f"✅ Напоминание создано!\nТекст: {text}\nТип: {'СРОЧНОЕ' if is_urgent else 'Обычное'}",
+            reply_markup=None
+        )
+    await callback.answer()
+
+@dp.callback_query(lambda c: c.data.startswith("stop_"))
+async def stop_reminder(callback: types.CallbackQuery):
+    reminder_id = callback.data.split("_")[1]
+    user_id = str(callback.from_user.id)
+    
+    if user_id in reminders and reminder_id in reminders[user_id]:
+        reminders[user_id][reminder_id]['active'] = False
+        save_reminders(reminders)
+        
+        # Удаляем все запланированные уведомления для этого reminder_id
+        for job in scheduler.get_jobs():
+            if job.args and len(job.args) >= 3 and job.args[2] == reminder_id:
+                job.remove()
+        
+        await callback.message.edit_text(
+            text=f"⏸ Напоминание отключено: {reminders[user_id][reminder_id]['text']}",
+            reply_markup=None
+        )
+        if reminders[user_id][reminder_id]["frequency"] == "однократно":
+            del reminders[user_id][reminder_id]
+            save_reminders(reminders)
+    await callback.answer()
