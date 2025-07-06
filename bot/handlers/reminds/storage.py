@@ -38,14 +38,20 @@ def restore_reminders():
             except Exception as e:
                 logger.error(f"Ошибка восстановления напоминания: {e}")
 
-
-async def send_scheduled_message(chat_id: int, user_id: str, reminder_name: str):
+async def send_scheduled_message(chat_id: int, user_id: str, reminder_id: str):
     try:
-        await bot.send_message(chat_id, f"🔔 Напоминание: {reminder_name}")
-        
-        if user_id in reminders and reminder_name in reminders[user_id]:
-            del reminders[user_id][reminder_name]
+        # Получаем текст напоминания из хранилища
+        if user_id in reminders and reminder_id in reminders[user_id]:
+            reminder_text = reminders[user_id][reminder_id]["text"]
+            
+            # Отправляем сообщение с текстом напоминания
+            await bot.send_message(chat_id, f"🔔 Напоминание: {reminder_text}")
+            
+            # Удаляем отработанное напоминание
+            del reminders[user_id][reminder_id]
             save_reminders(reminders)
+        else:
+            logger.error(f"Напоминание не найдено: user_id={user_id}, reminder_id={reminder_id}")
             
     except Exception as e:
-        logger.error(f"Ошибка отправки напоминания: {e}")
+        logger.error(f"Ошибка отправки напоминания: {e}", exc_info=True)
