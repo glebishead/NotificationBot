@@ -1,22 +1,6 @@
 import re
 from uuid import uuid4
 from datetime import datetime, timedelta
-
-
-from aiogram import types
-from aiogram.filters import Command
-from aiogram.utils.keyboard import InlineKeyboardBuilder
-from apscheduler.triggers.cron import CronTrigger
-
-
-from bot import dp, scheduler
-from bot.logs.logging_config import logger
-from bot.handlers.reminds.storage import reminders, send_scheduled_message, save_reminders
-
-
-import re
-from uuid import uuid4
-from datetime import datetime, timedelta
 from typing import Optional, Tuple
 
 from aiogram import types

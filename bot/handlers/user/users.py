@@ -11,7 +11,10 @@ from bot.logs.logging_config import logger
 @dp.message(Command("start"))
 async def cmd_start(message: Message):
     logger.info(f"Пользователь {message.from_user.id} запустил бота")
-    await message.answer("Привет! Я простой бот на aiogram 3. 🚀")
+    await message.answer(f"Привет! Я - бот напоминалка, или будильник. Зови как хочешь!\n\n"
+                         "Я могу предупредить тебя в нужный момент, только создай напоминание командой /add\n\n"
+                         "<code>/add через 1 минуту Вот так я могу предупреждать!😝</code>\n\n"
+                         "<code>/check</code> Чтобы посмотреть напоминания!", parse_mode="HTML")
 
 @dp.errors()
 async def errors_handler(update: types.Update, exception: Exception):
